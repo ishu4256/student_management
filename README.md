@@ -60,7 +60,7 @@ student_management/
 
 1. **Clone the Repository:**
    ```bash
-   git clone https://github.com/YOUR-USERNAME/student-management-system.git
+   git clone https://github.com/ishu4256/student-management-system.git
    ```
 
 2. **Move to Web Server Directory:**

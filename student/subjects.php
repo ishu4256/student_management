@@ -6,23 +6,21 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] != 'student') {
     header("Location: ../login.php"); exit();
 }
 
-$user_id = $_SESSION['user_id'];
-$student = $conn->query("SELECT id, departmentid FROM students WHERE userid = '$user_id'")->fetch_assoc();
+$user_id = (int)$_SESSION['user_id'];
+$account = $conn->query("SELECT email FROM users WHERE id = $user_id LIMIT 1")->fetch_assoc();
+$account_email = $conn->real_escape_string($account['email'] ?? '');
+$subject_class_column = $conn->query("SHOW COLUMNS FROM subjects LIKE 'class_id'");
+if ($subject_class_column && $subject_class_column->num_rows === 0) { $conn->query("ALTER TABLE subjects ADD COLUMN class_id INT NULL AFTER departmentid"); }
+$student = $conn->query("SELECT id, departmentid, class_id FROM students WHERE userid = $user_id OR ('$account_email' <> '' AND email = '$account_email') ORDER BY (userid = $user_id) DESC LIMIT 1")->fetch_assoc();
 $student_id = $student['id'] ?? 0;
 $dept_id = $student['departmentid'] ?? 0;
+$class_id = $student['class_id'] ?? 0;
+$has_class_assignment = $student_id > 0 && $dept_id > 0 && $class_id > 0;
 
 // 1. Enroll කිරීමේ තර්කනය (Enroll Button එක Click කළ විට)
-if (isset($_GET['enroll_id'])) {
-    $subject_id = (int)$_GET['enroll_id'];
-    $conn->query("INSERT INTO enrollments (student_id, subject_id) VALUES ('$student_id', '$subject_id')");
-    header("Location: subjects.php"); // නැවත load කිරීම
-}
-
-// 2. ශිෂ්‍යයා ලියාපදිංචි වී ඇති විෂයයන්
-$enrolled_query = $conn->query("SELECT s.* FROM subjects s INNER JOIN enrollments e ON s.id = e.subject_id WHERE e.student_id = '$student_id'");
-
-// 3. එම දෙපාර්තමේන්තුවේ ඇති නමුත් ශිෂ්‍යයා තවමත් ලියාපදිංචි වී නැති විෂයයන් (Available)
-$available_query = $conn->query("SELECT * FROM subjects WHERE departmentid = '$dept_id' AND id NOT IN (SELECT subject_id FROM enrollments WHERE student_id = '$student_id')");
+$department_name = $conn->query("SELECT name FROM departments WHERE id = '$dept_id'")->fetch_assoc()['name'] ?? 'Not assigned';
+$class_name = $conn->query("SELECT class_name FROM classes WHERE id = '$class_id'")->fetch_assoc()['class_name'] ?? 'Not assigned';
+$subjects = $class_id > 0 ? $conn->query("SELECT * FROM subjects WHERE departmentid = '$dept_id' AND class_id = '$class_id' ORDER BY subject_code ASC, name ASC") : false;
 ?>
 
 <!DOCTYPE html>
@@ -30,7 +28,7 @@ $available_query = $conn->query("SELECT * FROM subjects WHERE departmentid = '$d
 <head>
     <meta charset="UTF-8">
     <title>My Subjects</title>
-    <link rel="stylesheet" href="../css/style.css?v=2.4">
+    <link rel="stylesheet" href="../css/style.css?v=3.8">
     <style>
         .subject-card { background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
         .subject-info h3 { margin: 0; color: #1e293b; }
@@ -39,26 +37,19 @@ $available_query = $conn->query("SELECT * FROM subjects WHERE departmentid = '$d
 </head>
 <body>
     <div class="dashboard-container" style="max-width: 800px; margin: 40px auto;">
-    <h2>📚 My Subjects</h2>
+    <h2>📚 My Class Subjects</h2>
+    <p class="subtitle">Department: <strong><?php echo htmlspecialchars($department_name); ?></strong> · Class: <strong><?php echo htmlspecialchars($class_name); ?></strong></p>
             <a href="dashboard.php" class="btn-secondary">⬅ Back to Dashboard</a>
 
-    <h3>Enrolled Subjects</h3>
-    <?php while($row = $enrolled_query->fetch_assoc()): ?>
+    <h3>Subjects for my class</h3>
+    <?php if ($subjects && $subjects->num_rows > 0): while($row = $subjects->fetch_assoc()): ?>
         <div class="subject-card" style="border-left: 5px solid #16a34a;">
-            <div><h3><?php echo $row['name']; ?></h3><p>Code: <?php echo isset($row['code']) ? htmlspecialchars($row['code']) : 'N/A'; ?></p></div>
+            <div><h3><?php echo htmlspecialchars($row['name']); ?></h3><p>Code: <?php echo htmlspecialchars($row['subject_code'] ?? 'N/A'); ?> · <?php echo htmlspecialchars($row['credits'] ?? '-'); ?> credits</p></div>
             <span class="badge" style="background:#dcfce7; color:#166534;">Enrolled</span>
         </div>
-    <?php endwhile; ?>
-
-    <hr style="margin: 40px 0;">
-
-    <h3>Available to Enroll</h3>
-    <?php while($row = $available_query->fetch_assoc()): ?>
-        <div class="subject-card">
-            <div><h3><?php echo $row['name']; ?></h3><p>Code: <?php echo isset($row['code']) ? htmlspecialchars($row['code']) : 'N/A'; ?></p></div>
-            <a href="subjects.php?enroll_id=<?php echo $row['id']; ?>" class="btn-primary" style="text-decoration:none; padding:8px 16px;">➕ Enroll</a>
-        </div>
-    <?php endwhile; ?>
+    <?php endwhile; else: ?>
+            <div class="subject-card"><p><?php echo $has_class_assignment ? 'No subjects have been added for your class yet.' : 'You are not assigned to a department and class yet. Please complete Class Enrollment first.'; ?></p></div>
+    <?php endif; ?>
 </div>
 </body>
 </html>

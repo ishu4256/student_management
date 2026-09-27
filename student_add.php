@@ -15,41 +15,37 @@ $success = "";
 $departments_query = $conn->query("SELECT id, name FROM departments ORDER BY name ASC");
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_student'])) {
-    // Form එකෙන් එන දත්ත ලබා ගැනීම
-    $student_name = $conn->real_escape_string($_POST['name']);
-    $email = $conn->real_escape_string($_POST['email']);
-    $username = $conn->real_escape_string($_POST['username']); // 💡 ඇඩ්මින් දෙන Username එක
-    $department_id = $conn->real_escape_string($_POST['department_id']);
-    $phone = $conn->real_escape_string($_POST['phone']);
-    $address = $conn->real_escape_string($_POST['address']);
-    $sex=$conn->real_escape_string($_POST['sex']);
-    $date_of_birth=$conn->real_escape_string($_POST['date_of_birth']);
-    $parents_name=$conn->real_escape_string($_POST['parents_name']);
-    // Default Password
-    $password = '123456'; 
-
-    // Username එක හෝ Email එක දැනටමත් පාවිච්චි කර ඇත්දැයි බැලීම
+    $student_name = $conn->real_escape_string(trim($_POST['name'] ?? ''));
+    $email = $conn->real_escape_string(trim($_POST['email'] ?? ''));
+    $username = $conn->real_escape_string(trim($_POST['username'] ?? ''));
+    $department_id = (int)($_POST['department_id'] ?? 0);
+    $phone = $conn->real_escape_string(trim($_POST['phone'] ?? ''));
+    $address = $conn->real_escape_string(trim($_POST['address'] ?? ''));
+    $sex = $conn->real_escape_string(trim($_POST['sex'] ?? ''));
+    $date_of_birth = $conn->real_escape_string(trim($_POST['date_of_birth'] ?? ''));
+    $parents_name = $conn->real_escape_string(trim($_POST['parents_name'] ?? ''));
+    $password = $_POST['password'] ?? '';
+    $confirm_password = $_POST['confirm_password'] ?? '';
     $check_user = $conn->query("SELECT id FROM users WHERE username='$username' OR email='$email'");
-    
-    if ($check_user->num_rows > 0) {
+
+    if ($password !== $confirm_password) {
+        $error = "❌ Passwords do not match!";
+    } elseif (strlen($password) < 6) {
+        $error = "❌ Password must be at least 6 characters long!";
+    } elseif ($check_user && $check_user->num_rows > 0) {
         $error = "❌ Username or Email address is already taken!";
-    } else if (empty($department_id)) {
+    } elseif ($department_id <= 0) {
         $error = "❌ Please select a valid department!";
     } else {
-        // ➡️ පියවර 1: users table එකට ඇතුළත් කිරීම
-        $user_query = "INSERT INTO users (username, email, password, role) VALUES ('$username', '$email', '$password', 'student')";
-        
+        $password_hash = $conn->real_escape_string(password_hash($password, PASSWORD_DEFAULT));
+        $user_query = "INSERT INTO users (username, email, password, role) VALUES ('$username', '$email', '$password_hash', 'student')";
         if ($conn->query($user_query)) {
-            $new_user_id = $conn->insert_id; // අලුතින් හැදුණු user ID එක ගැනීම
-
-            // ➡️ පියවර 2: students table එකට ඇතුළත් කිරීම
-            $student_query = "INSERT INTO students (userid, name, email, departmentid, phone, address, sex, date_of_birth, parents_name) 
-                              VALUES ('$new_user_id', '$student_name', '$email', '$department_id', '$phone', '$address', '$sex', '$date_of_birth', '$parents_name'  )";
-            
+            $new_user_id = $conn->insert_id;
+            $student_query = "INSERT INTO students (userid, name, email, departmentid, phone, address, sex, date_of_birth, parents_name)
+                              VALUES ('$new_user_id', '$student_name', '$email', '$department_id', '$phone', '$address', '$sex', '$date_of_birth', '$parents_name')";
             if ($conn->query($student_query)) {
-                $success = "✅ Student registered successfully! (Default Password: 123456)";
+                $success = "✅ Student registered successfully!";
             } else {
-                // Foreign Key Error එකක් ආවොත් Rollback කිරීම
                 $conn->query("DELETE FROM users WHERE id = '$new_user_id'");
                 $error = "❌ Error adding to students table: " . $conn->error;
             }
@@ -100,7 +96,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_student'])) {
     <?php endif; ?>
 
     <div class="info-box">
-        🔑 <strong>Admin Customization:</strong> You can define a custom username for this student. The login password defaults to <code>123456</code>.
+        🔑 <strong>Account details:</strong> Set the username and password the student will use to sign in.
     </div>
 
     <form method="post">
@@ -117,6 +113,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_student'])) {
         <div class="input-group">
             <label class="label-text">Email Address</label>
             <input type="email" name="email" class="form-control" required placeholder="e.g., nimal@example.com">
+
+            <label>Password</label>
+            <input type="password" name="password" class="form-control" required placeholder="Minimum 6 characters">
+
+            <label>Confirm Password</label>
+            <input type="password" name="confirm_password" class="form-control" required placeholder="Retype password">
         </div>
 <div class="input-group">
         <label class="label-text">Phone Number</label>

@@ -16,9 +16,13 @@ if (isset($_POST['login'])) {
     if ($user_query->num_rows == 1) {
         $user = $user_query->fetch_assoc();
         
-        // password_verify භාවිතා කර හැෂ් කළ පාස්වර්ඩ් පරීක්ෂා කිරීම
-       // 💡 password_verify වෙනුවට සෘජුවම පාස්වර්ඩ් සමානදැයි බලයි (Plain-text check)
-        if ($password === $user['password']) {
+        // Support existing plain-text records and secure password hashes during migration.
+        $password_matches = password_verify($password, $user['password']) || hash_equals((string)$user['password'], (string)$password);
+        if ($password_matches) {
+            if (password_needs_rehash($user['password'], PASSWORD_DEFAULT)) {
+                $new_hash = $conn->real_escape_string(password_hash($password, PASSWORD_DEFAULT));
+                $conn->query("UPDATE users SET password='$new_hash' WHERE id=" . (int)$user['id']);
+            }
             
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['role'] = $user['role'];
@@ -67,6 +71,8 @@ if (isset($_POST['login'])) {
 <body>
 <div class="container">
     <div class="login-box">
+        <center>
+        <h1>Student Management System</h1></center><br><br>
         <h2>Welcome Back</h2>
         <p class="subtitle">Please sign in to your account</p>
 

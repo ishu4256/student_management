@@ -1,40 +1,45 @@
 <?php
-// 1. Database සම්බන්ධතාවය (පියවරක් පිටුපසට ගොස් config ෆෝල්ඩරය වෙත සම්බන්ධ වීම)
 include "../config/db.php";
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// ගුරුවරයෙක්දැයි පරීක්ෂා කිරීම
 if (!isset($_SESSION['role']) || $_SESSION['role'] != 'teacher') {
     header("Location: ../login.php");
     exit();
 }
 
-// ගුරුවරයාගේ දෙපාර්තමේන්තු ID එක සෙෂන් එකෙන් ලබා ගැනීම
-$dept_id = $_SESSION['departmentid'] ?? 0;
-
-// තෝරාගත් දිනය ලබා ගැනීම (නැත්නම් අද දිනය ස්වයංක්‍රීයව තේරේ)
+$conn->query("CREATE TABLE IF NOT EXISTS teacher_class_assignments (id INT AUTO_INCREMENT PRIMARY KEY, teacher_user_id INT NOT NULL, department_id INT NOT NULL, class_id INT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY teacher_class (teacher_user_id, class_id), INDEX (department_id))");
+$teacher_user_id = (int)($_SESSION['user_id'] ?? 0);
+$allowed_departments = $conn->query("SELECT DISTINCT department_id FROM teacher_class_assignments WHERE teacher_user_id = $teacher_user_id");
+$department_ids = [];
+if ($allowed_departments) { while ($allowed = $allowed_departments->fetch_assoc()) { $department_ids[] = (int)$allowed['department_id']; } }
+$requested_department = (int)($_GET['department_id'] ?? 0);
+$dept_id = in_array($requested_department, $department_ids, true) ? $requested_department : ($department_ids[0] ?? 0);
+$requested_class = (int)($_GET['class_id'] ?? 0);
 $selected_date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
 
-// 2. ගුරුවරයාගේ දෙපාර්තමේන්තුවේ නම ලබා ගැනීම
+$departments = $conn->query("SELECT id, name FROM departments WHERE id IN (" . ($department_ids ? implode(',', $department_ids) : '0') . ") ORDER BY name ASC");
+$classes = $conn->query("SELECT c.id, c.class_name FROM classes c INNER JOIN teacher_class_assignments a ON a.class_id = c.id WHERE a.teacher_user_id = $teacher_user_id AND a.department_id = $dept_id ORDER BY c.class_name ASC");
+$class_options = [];
+$class_ids = [];
+if ($classes) { while ($class = $classes->fetch_assoc()) { $class_options[] = $class; $class_ids[] = (int)$class['id']; } }
+$selected_class = in_array($requested_class, $class_ids, true) ? $requested_class : 0;
+
 $dept_name_query = $conn->query("SELECT name FROM departments WHERE id = '$dept_id'");
 $dept_row = $dept_name_query->fetch_assoc();
 $my_dept_name = $dept_row['name'] ?? 'Your Department';
 
-// 3. තෝරාගත් දිනයට සහ අදාළ දෙපාර්තමේන්තුවට පමණක් අදාළව දත්ත ලබා ගැනීම
-// 💡 a.date වෙනුවට a.attendance_date ලෙස වෙනස් කරන ලදී
-// 3. යාවත්කාලීන කළ SQL Query (දෙපාර්තමේන්තුවේ සියලුම සිසුන් සහ පැමිණීමේ විස්තර එකට ලබා ගැනීම)
-$query = "SELECT s.id AS student_id, s.name AS student_name, a.status 
+$class_name = $selected_class > 0 ? ($conn->query("SELECT class_name FROM classes WHERE id = '$selected_class'")->fetch_assoc()['class_name'] ?? 'Selected Class') : 'Select a class';
+
+$query = $selected_class > 0 ? "SELECT s.id AS student_id, s.name AS student_name, a.status
           FROM students s 
           LEFT JOIN attendance a ON s.id = a.student_id AND a.attendance_date = '$selected_date'
-          WHERE s.departmentid = '$dept_id' 
-          ORDER BY s.name ASC";
+          WHERE s.departmentid = '$dept_id' AND s.class_id = '$selected_class' ORDER BY s.name ASC" : '';
 
-$attendance_result = $conn->query($query);
+$attendance_result = $query !== '' ? $conn->query($query) : false;
 
-// 4. Counts ගණනය කිරීම
 $total_students = $attendance_result ? $attendance_result->num_rows : 0;
 $present_count = 0;
 $absent_count = 0;
@@ -44,11 +49,9 @@ if ($total_students > 0) {
         if ($row['status'] == 'Present') $present_count++;
         if ($row['status'] == 'Absent') $absent_count++;
     }
-    // Table එකේ පෙන්වීමට pointer එක මුලටම ගැනීම
     $attendance_result->data_seek(0);
 }
 
-// පැමිණීමේ ප්‍රතිශතය
 $attendance_rate = $total_students > 0 ? round(($present_count / $total_students) * 100) : 0;
 ?>
 <!DOCTYPE html>
@@ -93,18 +96,42 @@ $attendance_rate = $total_students > 0 ? round(($present_count / $total_students
 </head>
 <body>
 
-<div class="dashboard summary-container" style="max-width: 900px; margin: 40px auto;">
+<div class="dashboard summary-container" style="max-width: 960px; margin: 40px auto;">
     <div class="dashboard-header">
         <div>
             <h2>Attendance Report</h2>
-            <p class="subtitle">Department: <strong><?php echo $my_dept_name; ?></strong></p>
+            <p class="subtitle">Department: <strong><?php echo htmlspecialchars($my_dept_name); ?></strong> | Class: <strong><?php echo htmlspecialchars($class_name); ?></strong></p>
         </div>
-        <a href="dashboard.php" class="btn-back">⬅ Back to Dashboard</a>
+        <a href="dashboard.php?department_id=<?php echo $dept_id; ?>&class_id=<?php echo $selected_class; ?>" class="btn-back">⬅ Back to Dashboard</a>
     </div>
 
     <div class="dept-form-box" style="background: #f8fafc; padding: 15px; border-radius: var(--radius-md); border: 1px solid var(--border-color); margin-bottom: 25px;">
-        <form method="get" style="display: flex; flex-direction: row; gap: 15px; align-items: flex-end;">
-            <div class="input-group" style="flex: 1; margin-bottom: 0;">
+        <form method="get" style="display: flex; flex-direction: row; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+            <div class="input-group" style="flex: 1; min-width: 220px; margin-bottom: 0;">
+                <label style="font-weight: 600; font-size: 13px;">Select Department</label>
+                <select name="department_id" onchange="this.form.submit()" style="margin-bottom: 0;">
+                    <option value="">-- Select Department --</option>
+                    <?php while ($dept = $departments->fetch_assoc()): ?>
+                        <option value="<?php echo (int)$dept['id']; ?>" <?php echo ($dept_id == (int)$dept['id']) ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($dept['name']); ?>
+                        </option>
+                    <?php endwhile; ?>
+                </select>
+            </div>
+
+            <div class="input-group" style="flex: 1; min-width: 220px; margin-bottom: 0;">
+                <label style="font-weight: 600; font-size: 13px;">Select Class</label>
+                <select name="class_id" onchange="this.form.submit()" style="margin-bottom: 0;">
+                    <option value="">-- Select Class --</option>
+                    <?php foreach ($class_options as $class): ?>
+                        <option value="<?php echo (int)$class['id']; ?>" <?php echo ($selected_class == (int)$class['id']) ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($class['class_name']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="input-group" style="flex: 1; min-width: 220px; margin-bottom: 0;">
                 <label style="font-weight: 600; font-size: 13px;">Select Report Date</label>
                 <input type="date" name="date" value="<?php echo $selected_date; ?>" style="margin-bottom: 0;">
             </div>
@@ -129,6 +156,11 @@ $attendance_rate = $total_students > 0 ? round(($present_count / $total_students
             <h4>Rate</h4>
             <p><?php echo $attendance_rate; ?>%</p>
         </div>
+    </div>
+
+    <div class="table-container" style="margin-bottom: 20px;">
+        <h3 style="margin-bottom: 15px; color: var(--text-main); font-size: 16px;">Filter Summary</h3>
+        <p style="margin: 0; color: var(--text-muted);">Showing attendance for <strong><?php echo htmlspecialchars($my_dept_name); ?></strong> / <strong><?php echo htmlspecialchars($class_name); ?></strong> on <strong><?php echo htmlspecialchars($selected_date); ?></strong>.</p>
     </div>
 
     <div class="table-container">

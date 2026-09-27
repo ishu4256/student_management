@@ -3,21 +3,35 @@ include "../config/db.php";
 
 if (isset($_POST['save'])) {
 
-    $name = $_POST['name'];
-    $email = $_POST['email'];
-    $departmentid = $_POST['departmentid'];
-    $userid = $_POST['userid'];
-    $phone = $_POST['phone'];
-    $address = $_POST['address'];
+    $name = $conn->real_escape_string(trim($_POST['name'] ?? ''));
+    $email = $conn->real_escape_string(trim($_POST['email'] ?? ''));
+    $username = $conn->real_escape_string(trim($_POST['username'] ?? ''));
+    $departmentid = (int)($_POST['departmentid'] ?? 0);
+    $phone = $conn->real_escape_string(trim($_POST['phone'] ?? ''));
+    $address = $conn->real_escape_string(trim($_POST['address'] ?? ''));
+    $password = $_POST['password'] ?? '';
+    $confirm_password = $_POST['confirm_password'] ?? '';
 
-    // සටහන: SQL Injection වලින් ආරක්ෂා වීමට ඉදිරියේදී prepare statements භාවිතා කරන්න.
-    $conn->query("INSERT INTO teachers
-    (name, email, departmentid, userid, phone, address)
-    VALUES
-    ('$name', '$email', '$departmentid', '$userid', '$phone', '$address')");
+    if ($password !== $confirm_password) {
+        $error = 'Passwords do not match.';
+    } elseif (strlen($password) < 6) {
+        $error = 'Password must be at least 6 characters long.';
+    } else {
+        $user_check = $conn->query("SELECT id FROM users WHERE username='$username' OR email='$email'");
+        if ($user_check && $user_check->num_rows > 0) {
+            $error = 'Username or email is already taken.';
+        } else {
+            $password_hash = $conn->real_escape_string(password_hash($password, PASSWORD_DEFAULT));
+            $conn->query("INSERT INTO users (username, email, password, role) VALUES ('$username', '$email', '$password_hash', 'teacher')");
+            $userid = $conn->insert_id;
 
-    header("Location: teachers.php");
-    exit();
+            $conn->query("INSERT INTO teachers (name, email, departmentid, userid, phone, address)
+                VALUES ('$name', '$email', '$departmentid', '$userid', '$phone', '$address')");
+
+            header("Location: teachers.php?success=added");
+            exit();
+        }
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -26,7 +40,7 @@ if (isset($_POST['save'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Add New Teacher</title>
-    <link rel="stylesheet" href="../css/style.css?v=1.4">
+    <link rel="stylesheet" href="../css/style.css?v=4.0">
 </head>
 <body>
 
@@ -52,6 +66,8 @@ if (isset($_POST['save'])) {
             </div>
         </div>
 
+        <?php if (!empty($error)): ?><div class="error"><?php echo htmlspecialchars($error); ?></div><?php endif; ?>
+
         <div class="form-row">
             <div class="input-group">
                 <label for="departmentid">Department</label>
@@ -67,8 +83,19 @@ if (isset($_POST['save'])) {
             </div>
 
             <div class="input-group">
-                <label for="userid">User ID</label>
-                <input type="number" id="userid" name="userid" placeholder="System User ID" required>
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" placeholder="E.g. johnteacher" required>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="input-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" placeholder="Minimum 6 characters" required>
+            </div>
+            <div class="input-group">
+                <label for="confirm_password">Confirm Password</label>
+                <input type="password" id="confirm_password" name="confirm_password" placeholder="Retype password" required>
             </div>
         </div>
 
